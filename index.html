@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>東吳大學雙溪校區宿舍 — 360° 現況實景導覽</title>
+  <style>
+    :root {
+      --bg: #0b0f17;
+      --panel: rgba(15, 23, 36, 0.84);
+      --panel-solid: #0f1724;
+      --border: rgba(148, 163, 184, 0.22);
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: var(--bg); color: var(--text);
+      font-family: "Microsoft JhengHei", "Noto Sans TC", system-ui, -apple-system, sans-serif;
+      user-select: none;
+    }
+
+    /* Fullscreen WebGL Canvas */
+    #viewer {
+      position: fixed; inset: 0; width: 100%; height: 100%;
+      cursor: grab; display: block;
+    }
+    #viewer.dragging { cursor: grabbing; }
+
+    /* Top Bar */
+    .topbar {
+      position: fixed; top: 12px; left: 12px; right: 12px;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      pointer-events: none; z-index: 20;
+    }
+    .topbar-left, .topbar-right {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--panel); backdrop-filter: blur(12px);
+      border: 1px solid var(--border); border-radius: 12px;
+      padding: 8px 12px; pointer-events: auto;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+    }
+    .brand {
+      font-weight: 700; font-size: 14px; letter-spacing: 0.3px;
+      white-space: nowrap; color: #e2e8f0;
+    }
+    .divider { width: 1px; height: 20px; background: var(--border); }
+    .zone-badge {
+      font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+      color: #0b0f17; white-space: nowrap;
+    }
+    .station-info {
+      display: flex; align-items: baseline; gap: 8px;
+    }
+    .station-num {
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: 13px; color: var(--accent); font-weight: 700;
+    }
+    .station-title { font-size: 14px; font-weight: 600; color: #fff; }
+    .station-time { font-size: 12px; color: var(--muted); font-family: ui-monospace, Consolas, monospace; }
+
+    .btn {
+      background: rgba(30, 41, 59, 0.85); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 6px 10px; font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s ease; white-space: nowrap;
+    }
+    .btn:hover { background: rgba(51, 65, 85, 0.95); border-color: rgba(148,163,184,0.45); }
+    .btn.active { background: var(--accent); color: #082f49; border-color: var(--accent); }
+    .btn.warn { background: #f59e0b; color: #1c1917; border-color: #f59e0b; }
+
+    /* Center Loading Pill */
+    #loading-pill {
+      position: fixed; top: 68px; left: 50%; transform: translateX(-50%);
+      background: rgba(15, 23, 36, 0.88); border: 1px solid var(--border);
+      padding: 5px 14px; border-radius: 999px; font-size: 12px; color: var(--accent);
+      z-index: 25; pointer-events: none; opacity: 0; transition: opacity 0.2s;
+    }
+    #loading-pill.show { opacity: 1; }
+
+    /* On-screen Prev / Next Arrows */
+    .nav-arrow {
+      position: fixed; top: 50%; transform: translateY(-50%);
+      width: 44px; height: 64px; border-radius: 12px;
+      background: rgba(15, 23, 36, 0.65); backdrop-filter: blur(8px);
+      border: 1px solid var(--border); color: #fff; font-size: 22px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; z-index: 15; transition: all 0.15s;
+    }
+    .nav-arrow:hover { background: rgba(56, 189, 248, 0.28); border-color: var(--accent); }
+    #btn-prev-big { left: 14px; }
+    #btn-next-big { right: 14px; }
+
+    /* CAD Minimap Panel */
+    #map-panel {
+      position: fixed; right: 14px; bottom: 164px;
+      width: 410px; max-width: calc(100vw - 28px);
+      background: var(--panel); backdrop-filter: blur(12px);
+      border: 1px solid var(--border); border-radius: 14px;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+      z-index: 22; overflow: hidden; display: flex; flex-direction: column;
+      transition: width 0.2s ease, opacity 0.2s ease;
+    }
+    #map-panel.expanded { width: min(760px, calc(100vw - 28px)); }
+    #map-panel.hidden { display: none; }
+
+    .map-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 10px; border-bottom: 1px solid var(--border); gap: 6px;
+      cursor: grab;
+    }
+    .map-header.dragging { cursor: grabbing; }
+    .map-drag-grip {
+      color: var(--muted); font-size: 13px; letter-spacing: -1px;
+      padding: 0 2px; flex-shrink: 0; opacity: 0.8;
+    }
+    .map-tabs {
+      display: flex; gap: 4px; overflow-x: auto; flex: 1; min-width: 0;
+      padding-bottom: 3px; scrollbar-width: thin;
+      scrollbar-color: rgba(148,163,184,0.45) transparent;
+    }
+    .map-tabs::-webkit-scrollbar { height: 5px; }
+    .map-tabs::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.45); border-radius: 999px; }
+    .map-tab {
+      background: rgba(30, 41, 59, 0.7); color: var(--muted);
+      border: 1px solid transparent; border-radius: 6px;
+      padding: 4px 8px; font-size: 11px; font-weight: 600;
+      cursor: pointer; white-space: nowrap;
+    }
+    .map-tab.active {
+      background: rgba(56, 189, 248, 0.2); color: #fff; border-color: var(--accent);
+    }
+    .map-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+    .map-stage {
+      position: relative; width: 100%; background: #ffffff;
+      overflow: hidden; max-height: 46vh;
+      display: flex; align-items: center; justify-content: center;
+      cursor: zoom-in;
+    }
+    .map-stage.zoomed { cursor: grab; }
+    .map-stage.panning { cursor: grabbing; }
+    #map-panel.expanded .map-stage { max-height: 62vh; }
+    .map-wrap {
+      position: relative; display: inline-block; max-width: 100%; max-height: 100%;
+      transform-origin: 0 0; will-change: transform;
+    }
+    #map-img {
+      display: block; max-width: 100%; max-height: 46vh; width: auto; height: auto;
+      pointer-events: none;
+    }
+    #map-panel.expanded #map-img { max-height: 62vh; }
+
+    #map-pins {
+      position: absolute; inset: 0;
+    }
+    #map-pins.editing { cursor: crosshair; }
+
+    .pin {
+      position: absolute; transform: translate(-50%, -50%) scale(var(--pin-inv, 1));
+      width: 22px; height: 22px; border-radius: 50%;
+      border: 2px solid #fff; color: #0b0f17;
+      font-size: 10px; font-weight: 800; font-family: ui-monospace, Consolas, monospace;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.55);
+      transition: transform 0.12s ease; z-index: 2;
+    }
+    .pin:hover { transform: translate(-50%, -50%) scale(calc(var(--pin-inv, 1) * 1.25)); z-index: 5; }
+    .pin.active {
+      transform: translate(-50%, -50%) scale(calc(var(--pin-inv, 1) * 1.32));
+      box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.45), 0 2px 10px rgba(0,0,0,0.75);
+      z-index: 6;
+    }
+    .map-footer {
+      padding: 6px 10px; font-size: 11px; color: var(--muted);
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    }
+
+    /* Bottom Dock: Zone Filter + Thumbnail Strip */
+    .bottom-dock {
+      position: fixed; left: 12px; right: 12px; bottom: 12px;
+      background: var(--panel); backdrop-filter: blur(12px);
+      border: 1px solid var(--border); border-radius: 14px;
+      padding: 8px 10px; z-index: 20;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .dock-header {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    }
+    .zone-chips {
+      display: flex; gap: 6px; overflow-x: auto;
+      flex: 1; min-width: 0; padding-bottom: 3px;
+      scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.45) transparent;
+    }
+    .zone-chips::-webkit-scrollbar { height: 5px; }
+    .zone-chips::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.45); border-radius: 999px; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(30, 41, 59, 0.75); color: #cbd5e1;
+      border: 1px solid var(--border); border-radius: 999px;
+      padding: 4px 10px; font-size: 12px; font-weight: 600;
+      cursor: pointer; white-space: nowrap; transition: all 0.15s;
+    }
+    .chip:hover { border-color: rgba(255,255,255,0.4); color: #fff; }
+    .chip.active { background: #1e293b; color: #fff; border-color: var(--accent); }
+    .chip-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    .hud-readout {
+      font-size: 11px; color: var(--muted); white-space: nowrap;
+      font-family: ui-monospace, Consolas, monospace; flex-shrink: 0;
+    }
+
+    .thumb-strip {
+      display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px;
+    }
+    .thumb-strip::-webkit-scrollbar { height: 6px; }
+    .thumb-strip::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.35); border-radius: 999px; }
+
+    .thumb-card {
+      position: relative; flex: 0 0 144px; height: 84px;
+      border-radius: 9px; overflow: hidden; cursor: pointer;
+      border: 2px solid transparent; background: #111827;
+      transition: transform 0.15s, border-color 0.15s;
+    }
+    .thumb-card:hover { transform: translateY(-2px); border-color: rgba(255,255,255,0.45); }
+    .thumb-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(56,189,248,0.3); }
+    .thumb-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .thumb-overlay {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(transparent, rgba(0,0,0,0.88));
+      padding: 14px 6px 4px; font-size: 11px; line-height: 1.2;
+      color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .thumb-num {
+      position: absolute; top: 4px; left: 5px;
+      padding: 1px 5px; border-radius: 5px; font-size: 10px; font-weight: 800;
+      font-family: ui-monospace, Consolas, monospace; color: #0b0f17;
+    }
+
+    @media (max-width: 820px) {
+      .brand, .divider, .station-time, .hud-readout { display: none; }
+      #map-panel { width: calc(100vw - 24px); right: 12px; bottom: 162px; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="viewer"></canvas>
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="brand">東吳宿舍 360° 現況導覽</div>
+      <div class="divider"></div>
+      <span id="zone-badge" class="zone-badge">屋頂</span>
+      <div class="station-info">
+        <span id="station-num" class="station-num">#001 / 107</span>
+        <span id="station-title" class="station-title">載入中...</span>
+        <span id="station-time" class="station-time">14:17:31</span>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <button class="btn" id="btn-prev" title="上一站 (←)">← 上一站</button>
+      <button class="btn" id="btn-next" title="下一站 (→)">下一站 →</button>
+      <button class="btn" id="btn-autorotate" title="自動環視 (Space)">自動環視</button>
+      <button class="btn active" id="btn-map" title="顯示/隱藏 CAD 平面圖 (M)">CAD 小地圖</button>
+      <button class="btn" id="btn-fullscreen" title="全螢幕 (F)">全螢幕</button>
+    </div>
+  </div>
+
+  <div id="loading-pill">載入 4K 全景影像中…</div>
+
+  <button class="nav-arrow" id="btn-prev-big" title="上一站 (←)">‹</button>
+  <button class="nav-arrow" id="btn-next-big" title="下一站 (→)">›</button>
+
+  <div id="map-panel">
+    <div class="map-header" id="map-header" title="按住標題列可隨意拖動小地圖位置">
+      <span class="map-drag-grip" aria-hidden="true">⋮⋮</span>
+      <div class="map-tabs" id="map-tabs"></div>
+      <div class="map-actions">
+        <button class="btn" id="btn-reset-map-zoom" title="重設小地圖縮放 (100%)" style="display:none;">100%</button>
+        <button class="btn" id="btn-edit-pins" title="點擊地圖可重新定位目前測站">編輯定位</button>
+        <button class="btn" id="btn-expand-map" title="放大/縮小平面圖">放大</button>
+      </div>
+    </div>
+    <div class="map-stage" id="map-stage">
+      <div class="map-wrap" id="map-wrap">
+        <img id="map-img" src="maps/plot_plan.png" alt="CAD 平面圖" />
+        <div id="map-pins"></div>
+      </div>
+    </div>
+    <div class="map-footer">
+      <span id="map-hint">滾輪可縮放小地圖、放大後可拖曳平移｜點圓點換站</span>
+      <div style="display:flex;gap:4px;flex-shrink:0;">
+        <button class="btn" id="btn-reset-pins" style="display:none;" title="還原所有預設定位點">重設預設</button>
+        <button class="btn" id="btn-export-pins" style="display:none;">匯出定位</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-dock">
+    <div class="dock-header">
+      <div class="zone-chips" id="zone-chips"></div>
+      <div class="hud-readout" id="hud-readout">視角 0° · FOV 75° · 拖曳環視 / 滾輪縮放</div>
+    </div>
+    <div class="thumb-strip" id="thumb-strip"></div>
+  </div>
+
+  <script src="stations.js"></script>
+  <script>
+    // =========================================================================
+    // 1. State & Storage
+    // =========================================================================
+    const STORAGE_KEY = "soochow_360_pins_v5";
+    const ZONES = window.TOUR_ZONES;
+    const MAPS = window.TOUR_MAPS;
+    const STATIONS = window.TOUR_STATIONS.map(s => ({ ...s }));
+    const zoneMap = Object.fromEntries(ZONES.map(z => [z.id, z]));
+
+    // Restore saved custom pin edits if any
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+      if (saved && typeof saved === "object") {
+        // One-time fix: if #35 was saved on plot_plan, move only #35 back to 35_38_L2
+        if (saved[35] && saved[35].map === "plot_plan") {
+          saved[35] = { map: "35_38_L2", mx: 8, my: 58 };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+        }
+        STATIONS.forEach(s => {
+          if (saved[s.id]) {
+            s.map = saved[s.id].map;
+            s.mx = saved[s.id].mx;
+            s.my = saved[s.id].my;
+          }
+        });
+      }
+    } catch {}
+
+    let currentIdx = 0;       // 0..106 index into STATIONS
+    let activeZone = "all";
+    let activeMapId = STATIONS[0].map;
+    let editPinMode = false;
+    let autoRotate = false;
+
+    // Camera angles (radians / degrees)
+    let yaw = 0, pitch = 0, fov = 75;
+    let targetYaw = 0, targetPitch = 0, targetFov = 75;
+    let isDragging = false, lastX = 0, lastY = 0;
+
+    // =========================================================================
+    // 2. Pure WebGL Equirectangular 360° Renderer (Zero external dependencies)
+    // =========================================================================
+    const canvas = document.getElementById("viewer");
+    const gl = canvas.getContext("webgl", { antialias: true, preserveDrawingBuffer: false });
+
+    const VS_SRC = `
+      attribute vec2 aPos;
+      varying vec2 vUv;
+      void main() {
+        vUv = aPos;
+        gl_Position = vec4(aPos, 0.0, 1.0);
+      }
+    `;
+    const FS_SRC = `
+      precision highp float;
+      varying vec2 vUv;
+      uniform sampler2D uTex;
+      uniform float uYaw;
+      uniform float uPitch;
+      uniform float uFov;
+      uniform float uAspect;
+      const float PI = 3.14159265359;
+
+      void main() {
+        float halfH = tan(radians(uFov) * 0.5);
+        vec3 dir = normalize(vec3(vUv.x * halfH * uAspect, vUv.y * halfH, 1.0));
+
+        // Pitch around X
+        float cp = cos(uPitch), sp = sin(uPitch);
+        dir = vec3(dir.x, dir.y * cp - dir.z * sp, dir.y * sp + dir.z * cp);
+
+        // Yaw around Y
+        float cy = cos(uYaw), sy = sin(uYaw);
+        dir = vec3(dir.x * cy + dir.z * sy, dir.y, -dir.x * sy + dir.z * cy);
+
+        float lon = atan(dir.x, dir.z);
+        float lat = asin(clamp(dir.y, -1.0, 1.0));
+
+        vec2 texUv = vec2(0.5 + lon / (2.0 * PI), 0.5 - lat / PI);
+        gl_FragColor = texture2D(uTex, texUv);
+      }
+    `;
+
+    function compileShader(type, src) {
+      const sh = gl.createShader(type);
+      gl.shaderSource(sh, src);
+      gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(sh));
+      }
+      return sh;
+    }
+
+    const prog = gl.createProgram();
+    gl.attachShader(prog, compileShader(gl.VERTEX_SHADER, VS_SRC));
+    gl.attachShader(prog, compileShader(gl.FRAGMENT_SHADER, FS_SRC));
+    gl.linkProgram(prog);
+    gl.useProgram(prog);
+
+    const quadBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    const aPos = gl.getAttribLocation(prog, "aPos");
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+    const uYaw = gl.getUniformLocation(prog, "uYaw");
+    const uPitch = gl.getUniformLocation(prog, "uPitch");
+    const uFov = gl.getUniformLocation(prog, "uFov");
+    const uAspect = gl.getUniformLocation(prog, "uAspect");
+
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    // 1x1 dark placeholder
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([15, 23, 36, 255]));
+
+    function uploadImageToTexture(img) {
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+    }
+
+    function resizeCanvas() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = Math.floor(window.innerWidth * dpr);
+      const h = Math.floor(window.innerHeight * dpr);
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+        gl.viewport(0, 0, w, h);
+      }
+    }
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    function renderLoop() {
+      if (autoRotate && !isDragging) {
+        targetYaw += 0.0022;
+      }
+      yaw += (targetYaw - yaw) * 0.16;
+      pitch += (targetPitch - pitch) * 0.16;
+      fov += (targetFov - fov) * 0.18;
+
+      gl.uniform1f(uYaw, yaw);
+      gl.uniform1f(uPitch, pitch);
+      gl.uniform1f(uFov, fov);
+      gl.uniform1f(uAspect, canvas.width / Math.max(1, canvas.height));
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+      const degYaw = ((Math.round(yaw * 180 / Math.PI) % 360) + 360) % 360;
+      document.getElementById("hud-readout").textContent =
+        `視角 ${degYaw}° · FOV ${Math.round(fov)}° · 拖曳環視 / 滾輪縮放 / ←→換站`;
+
+      requestAnimationFrame(renderLoop);
+    }
+    requestAnimationFrame(renderLoop);
+
+    // =========================================================================
+    // 3. Pointer / Touch / Wheel / Keyboard Controls
+    // =========================================================================
+    canvas.addEventListener("pointerdown", e => {
+      isDragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      canvas.classList.add("dragging");
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener("pointermove", e => {
+      if (!isDragging) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      const sens = (fov / 75) * 0.0038;
+      targetYaw -= dx * sens;
+      targetPitch = Math.max(-1.42, Math.min(1.42, targetPitch + dy * sens));
+    });
+    canvas.addEventListener("pointerup", () => {
+      isDragging = false;
+      canvas.classList.remove("dragging");
+    });
+    canvas.addEventListener("wheel", e => {
+      e.preventDefault();
+      if (e.shiftKey || e.ctrlKey) {
+        goRelative(e.deltaY > 0 ? 1 : -1);
+      } else {
+        targetFov = Math.max(32, Math.min(105, targetFov + e.deltaY * 0.045));
+      }
+    }, { passive: false });
+
+    // Horizontal wheel scrolling for map tabs, zone chips, and bottom thumbnail strip
+    function enableHorizontalWheel(el, speed) {
+      el.addEventListener("wheel", e => {
+        if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+          e.preventDefault();
+          e.stopPropagation();
+          el.scrollLeft += e.deltaY * speed;
+        }
+      }, { passive: false });
+    }
+    enableHorizontalWheel(document.getElementById("map-tabs"), 1.2);
+    enableHorizontalWheel(document.getElementById("zone-chips"), 1.2);
+    enableHorizontalWheel(document.getElementById("thumb-strip"), 2.4);
+
+    // Wheel over top station badge also quickly steps prev/next station
+    document.querySelector(".topbar-left").addEventListener("wheel", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      goRelative(e.deltaY > 0 ? 1 : -1);
+    }, { passive: false });
+    canvas.addEventListener("dblclick", () => {
+      targetPitch = 0;
+      targetFov = 75;
+    });
+
+    window.addEventListener("keydown", e => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+      if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") goRelative(1);
+      else if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") goRelative(-1);
+      else if (e.key === " ") { e.preventDefault(); toggleAutoRotate(); }
+      else if (e.key === "m" || e.key === "M") toggleMapPanel();
+      else if (e.key === "f" || e.key === "F") toggleFullscreen();
+      else if (e.key === "+" || e.key === "=") targetFov = Math.max(32, targetFov - 6);
+      else if (e.key === "-" || e.key === "_") targetFov = Math.min(105, targetFov + 6);
+    });
+
+    // =========================================================================
+    // 4. Image Loader with Fast Thumb Preview + 4K Swap + Neighbor Preload
+    // =========================================================================
+    const imgCache = new Map();
+    let loadToken = 0;
+
+    function pad2(n) { return String(n).padStart(2, "0"); }
+    function pad3(n) { return String(n).padStart(3, "0"); }
+
+    function preloadFull(stationId) {
+      if (stationId < 1 || stationId > STATIONS.length) return;
+      const key = "full_" + stationId;
+      if (imgCache.has(key)) return;
+      const im = new Image();
+      im.src = `images/pano_${pad3(stationId)}.jpg`;
+      im.onload = () => imgCache.set(key, im);
+    }
+
+    function loadStation(idx) {
+      idx = (idx + STATIONS.length) % STATIONS.length;
+      currentIdx = idx;
+      const st = STATIONS[idx];
+      const z = zoneMap[st.zone];
+      const token = ++loadToken;
+
+      // Update Top HUD
+      const badge = document.getElementById("zone-badge");
+      badge.textContent = z.name;
+      badge.style.background = z.color;
+      document.getElementById("station-num").textContent = `#${pad3(st.id)} / ${STATIONS.length}`;
+      document.getElementById("station-title").textContent = st.title;
+      document.getElementById("station-time").textContent = st.time;
+
+      // Sync CAD map tab if station belongs to another map
+      if (st.map !== activeMapId) {
+        selectMap(st.map);
+      } else {
+        renderMapPins();
+      }
+
+      // Highlight thumbnail
+      document.querySelectorAll(".thumb-card").forEach(el => {
+        const isAct = Number(el.dataset.idx) === idx;
+        el.classList.toggle("active", isAct);
+        if (isAct) el.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+      });
+
+      // Load texture (cached 4K -> instant, else thumb first -> 4K)
+      const pill = document.getElementById("loading-pill");
+      const fullKey = "full_" + st.id;
+      if (imgCache.has(fullKey)) {
+        pill.classList.remove("show");
+        uploadImageToTexture(imgCache.get(fullKey));
+      } else {
+        pill.classList.add("show");
+        const thumbImg = new Image();
+        thumbImg.src = `thumbs/pano_${pad3(st.id)}.jpg`;
+        thumbImg.onload = () => {
+          if (token === loadToken && !imgCache.has(fullKey)) {
+            uploadImageToTexture(thumbImg);
+          }
+        };
+        const fullImg = new Image();
+        fullImg.src = `images/pano_${pad3(st.id)}.jpg`;
+        fullImg.onload = () => {
+          imgCache.set(fullKey, fullImg);
+          if (token === loadToken) {
+            uploadImageToTexture(fullImg);
+            pill.classList.remove("show");
+          }
+        };
+      }
+
+      // Preload neighbors
+      preloadFull(st.id + 1);
+      preloadFull(st.id - 1);
+    }
+
+    function getFilteredIndices() {
+      if (activeZone === "all") return STATIONS.map((_, i) => i);
+      return STATIONS.map((s, i) => s.zone === activeZone ? i : -1).filter(i => i >= 0);
+    }
+
+    function goRelative(delta) {
+      const list = getFilteredIndices();
+      const pos = list.indexOf(currentIdx);
+      if (pos === -1) {
+        loadStation(list[0] ?? 0);
+      } else {
+        loadStation(list[(pos + delta + list.length) % list.length]);
+      }
+    }
+
+    // =========================================================================
+    // 5. UI Builders: Zone Chips, Thumbnails, CAD Minimap + Pin Edit Mode
+    // =========================================================================
+    function buildZoneChips() {
+      const box = document.getElementById("zone-chips");
+      box.innerHTML = "";
+      ZONES.forEach(z => {
+        const count = z.id === "all" ? STATIONS.length : STATIONS.filter(s => s.zone === z.id).length;
+        const btn = document.createElement("button");
+        btn.className = "chip" + (z.id === activeZone ? " active" : "");
+        btn.innerHTML = `<span class="chip-dot" style="background:${z.color}"></span>${z.name} (${count})`;
+        btn.onclick = () => {
+          activeZone = z.id;
+          buildZoneChips();
+          buildThumbStrip();
+          const list = getFilteredIndices();
+          if (!list.includes(currentIdx) && list.length > 0) {
+            loadStation(list[0]);
+          }
+        };
+        box.appendChild(btn);
+      });
+    }
+
+    function buildThumbStrip() {
+      const strip = document.getElementById("thumb-strip");
+      strip.innerHTML = "";
+      const list = getFilteredIndices();
+      list.forEach(idx => {
+        const st = STATIONS[idx];
+        const z = zoneMap[st.zone];
+        const card = document.createElement("div");
+        card.className = "thumb-card" + (idx === currentIdx ? " active" : "");
+        card.dataset.idx = idx;
+        card.innerHTML = `
+          <img src="thumbs/pano_${pad3(st.id)}.jpg" loading="lazy" alt="${st.title}" />
+          <span class="thumb-num" style="background:${z.color}">#${pad3(st.id)}</span>
+          <div class="thumb-overlay">${st.title}</div>
+        `;
+        card.onclick = () => loadStation(idx);
+        strip.appendChild(card);
+      });
+    }
+
+    function buildMapTabs() {
+      const tabs = document.getElementById("map-tabs");
+      tabs.innerHTML = "";
+      MAPS.forEach(m => {
+        const btn = document.createElement("button");
+        btn.className = "map-tab" + (m.id === activeMapId ? " active" : "");
+        btn.textContent = m.name;
+        btn.onclick = () => selectMap(m.id);
+        tabs.appendChild(btn);
+      });
+    }
+
+    function selectMap(mapId) {
+      activeMapId = mapId;
+      const m = MAPS.find(x => x.id === mapId) || MAPS[0];
+      document.getElementById("map-img").src = m.file;
+      resetMapZoom();
+      buildMapTabs();
+      renderMapPins();
+    }
+
+    function renderMapPins() {
+      const container = document.getElementById("map-pins");
+      container.innerHTML = "";
+      container.classList.toggle("editing", editPinMode);
+      STATIONS.forEach((st, idx) => {
+        if (st.map !== activeMapId) return;
+        const z = zoneMap[st.zone];
+        const pin = document.createElement("div");
+        pin.className = "pin" + (idx === currentIdx ? " active" : "");
+        pin.style.left = st.mx + "%";
+        pin.style.top = st.my + "%";
+        pin.style.background = z.color;
+        pin.textContent = String(st.id);
+        pin.title = `#${pad3(st.id)} ${st.title} (${st.time})`;
+        pin.onclick = (e) => {
+          if (editPinMode) return;
+          e.stopPropagation();
+          loadStation(idx);
+        };
+        container.appendChild(pin);
+      });
+    }
+
+    // Click on CAD map to reposition current station in Edit Mode
+    document.getElementById("map-pins").addEventListener("click", e => {
+      if (!editPinMode || mapJustPanned) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const mx = Math.max(2, Math.min(98, ((e.clientX - rect.left) / rect.width) * 100));
+      const my = Math.max(2, Math.min(98, ((e.clientY - rect.top) / rect.height) * 100));
+      const st = STATIONS[currentIdx];
+      st.map = activeMapId;
+      st.mx = Math.round(mx * 10) / 10;
+      st.my = Math.round(my * 10) / 10;
+      savePinsToLocalStorage();
+      renderMapPins();
+    });
+
+    // =========================================================================
+    // 5b. CAD Minimap Wheel Zoom (Cursor-Centered) & Pan
+    // =========================================================================
+    const mapStageEl = document.getElementById("map-stage");
+    const mapWrapEl = document.getElementById("map-wrap");
+    const btnResetMapZoom = document.getElementById("btn-reset-map-zoom");
+    let mapScale = 1, mapTx = 0, mapTy = 0;
+    let mapPanning = false, mapJustPanned = false;
+    let panStartX = 0, panStartY = 0, panOrigTx = 0, panOrigTy = 0;
+
+    function applyMapTransform() {
+      if (mapScale <= 1.001) {
+        mapScale = 1; mapTx = 0; mapTy = 0;
+      } else {
+        const sw = mapStageEl.clientWidth;
+        const sh = mapStageEl.clientHeight;
+        const bw = mapWrapEl.offsetWidth;
+        const bh = mapWrapEl.offsetHeight;
+        const minTx = Math.min(0, sw - bw * mapScale);
+        const minTy = Math.min(0, sh - bh * mapScale);
+        mapTx = Math.max(minTx, Math.min(sw * 0.25, mapTx));
+        mapTy = Math.max(minTy, Math.min(sh * 0.25, mapTy));
+      }
+      mapWrapEl.style.transform = `translate(${mapTx}px, ${mapTy}px) scale(${mapScale})`;
+      const inv = 1 / Math.pow(mapScale, 0.78);
+      mapWrapEl.style.setProperty("--pin-inv", inv.toFixed(3));
+      mapStageEl.classList.toggle("zoomed", mapScale > 1);
+      btnResetMapZoom.style.display = mapScale > 1 ? "inline-block" : "none";
+      btnResetMapZoom.textContent = Math.round(mapScale * 100) + "%";
+    }
+
+    function resetMapZoom() {
+      mapScale = 1; mapTx = 0; mapTy = 0;
+      applyMapTransform();
+    }
+    btnResetMapZoom.onclick = resetMapZoom;
+
+    mapStageEl.addEventListener("wheel", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const wrapRect = mapWrapEl.getBoundingClientRect();
+      const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+      const newScale = Math.max(1, Math.min(6, mapScale * factor));
+      if (newScale === mapScale) return;
+
+      // Keep point under cursor fixed
+      const cx = (e.clientX - wrapRect.left) / mapScale;
+      const cy = (e.clientY - wrapRect.top) / mapScale;
+      mapTx -= cx * (newScale - mapScale);
+      mapTy -= cy * (newScale - mapScale);
+      mapScale = newScale;
+      applyMapTransform();
+    }, { passive: false });
+
+    mapStageEl.addEventListener("dblclick", e => {
+      if (e.target.closest(".pin")) return;
+      resetMapZoom();
+    });
+
+    mapStageEl.addEventListener("pointerdown", e => {
+      if (mapScale <= 1) return;
+      if (!editPinMode && e.target.closest(".pin")) return;
+      mapPanning = true;
+      mapJustPanned = false;
+      panStartX = e.clientX;
+      panStartY = e.clientY;
+      panOrigTx = mapTx;
+      panOrigTy = mapTy;
+      mapStageEl.classList.add("panning");
+    });
+
+    window.addEventListener("pointermove", e => {
+      if (!mapPanning) return;
+      const dx = e.clientX - panStartX;
+      const dy = e.clientY - panStartY;
+      if (Math.hypot(dx, dy) > 4) mapJustPanned = true;
+      mapTx = panOrigTx + dx;
+      mapTy = panOrigTy + dy;
+      applyMapTransform();
+    });
+
+    window.addEventListener("pointerup", () => {
+      if (!mapPanning) return;
+      mapPanning = false;
+      mapStageEl.classList.remove("panning");
+      if (mapJustPanned) setTimeout(() => { mapJustPanned = false; }, 30);
+    });
+
+    function savePinsToLocalStorage() {
+      const obj = {};
+      STATIONS.forEach(s => { obj[s.id] = { map: s.map, mx: s.mx, my: s.my }; });
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); } catch {}
+    }
+
+    // Button bindings
+    document.getElementById("btn-prev").onclick = () => goRelative(-1);
+    document.getElementById("btn-next").onclick = () => goRelative(1);
+    document.getElementById("btn-prev-big").onclick = () => goRelative(-1);
+    document.getElementById("btn-next-big").onclick = () => goRelative(1);
+
+    function toggleAutoRotate() {
+      autoRotate = !autoRotate;
+      document.getElementById("btn-autorotate").classList.toggle("active", autoRotate);
+    }
+    document.getElementById("btn-autorotate").onclick = toggleAutoRotate;
+
+    function toggleMapPanel() {
+      const panel = document.getElementById("map-panel");
+      panel.classList.toggle("hidden");
+      document.getElementById("btn-map").classList.toggle("active", !panel.classList.contains("hidden"));
+    }
+    document.getElementById("btn-map").onclick = toggleMapPanel;
+
+    document.getElementById("btn-expand-map").onclick = () => {
+      const panel = document.getElementById("map-panel");
+      const expanded = panel.classList.toggle("expanded");
+      document.getElementById("btn-expand-map").textContent = expanded ? "縮小" : "放大";
+      resetMapZoom();
+      clampMapPanel();
+    };
+
+    // Freely drag #map-panel by its header or footer
+    const mapPanelEl = document.getElementById("map-panel");
+    const mapHeaderEl = document.getElementById("map-header");
+    const mapFooterEl = mapPanelEl.querySelector(".map-footer");
+    let mapDragging = false, mapStartX = 0, mapStartY = 0, panelStartL = 0, panelStartT = 0;
+
+    function clampMapPanel() {
+      if (!mapPanelEl.style.left) return;
+      const rect = mapPanelEl.getBoundingClientRect();
+      const maxL = Math.max(8, window.innerWidth - rect.width - 8);
+      const maxT = Math.max(8, window.innerHeight - rect.height - 8);
+      const curL = parseFloat(mapPanelEl.style.left) || rect.left;
+      const curT = parseFloat(mapPanelEl.style.top) || rect.top;
+      mapPanelEl.style.left = Math.max(8, Math.min(maxL, curL)) + "px";
+      mapPanelEl.style.top = Math.max(8, Math.min(maxT, curT)) + "px";
+    }
+
+    function startMapDrag(e) {
+      if (e.target.closest("button") || e.target.closest(".map-tab")) return;
+      const rect = mapPanelEl.getBoundingClientRect();
+      mapPanelEl.style.left = rect.left + "px";
+      mapPanelEl.style.top = rect.top + "px";
+      mapPanelEl.style.right = "auto";
+      mapPanelEl.style.bottom = "auto";
+      mapDragging = true;
+      mapStartX = e.clientX;
+      mapStartY = e.clientY;
+      panelStartL = rect.left;
+      panelStartT = rect.top;
+      mapHeaderEl.classList.add("dragging");
+      e.preventDefault();
+    }
+
+    mapHeaderEl.addEventListener("pointerdown", startMapDrag);
+    mapFooterEl.addEventListener("pointerdown", startMapDrag);
+    window.addEventListener("pointermove", e => {
+      if (!mapDragging) return;
+      const rect = mapPanelEl.getBoundingClientRect();
+      const maxL = Math.max(8, window.innerWidth - rect.width - 8);
+      const maxT = Math.max(8, window.innerHeight - rect.height - 8);
+      const nextL = Math.max(8, Math.min(maxL, panelStartL + (e.clientX - mapStartX)));
+      const nextT = Math.max(8, Math.min(maxT, panelStartT + (e.clientY - mapStartY)));
+      mapPanelEl.style.left = nextL + "px";
+      mapPanelEl.style.top = nextT + "px";
+    });
+    window.addEventListener("pointerup", () => {
+      if (!mapDragging) return;
+      mapDragging = false;
+      mapHeaderEl.classList.remove("dragging");
+    });
+    window.addEventListener("resize", clampMapPanel);
+
+    document.getElementById("btn-edit-pins").onclick = () => {
+      editPinMode = !editPinMode;
+      const btn = document.getElementById("btn-edit-pins");
+      btn.classList.toggle("warn", editPinMode);
+      btn.textContent = editPinMode ? "完成編輯" : "編輯定位";
+      document.getElementById("btn-export-pins").style.display = editPinMode ? "inline-block" : "none";
+      document.getElementById("btn-reset-pins").style.display = editPinMode ? "inline-block" : "none";
+      document.getElementById("map-hint").textContent = editPinMode
+        ? "編輯中：直接點擊上方 CAD 圖面即可把「目前測站」移到該處（自動記憶）"
+        : "滾輪可縮放小地圖、放大後可拖曳平移｜點圓點換站";
+      renderMapPins();
+    };
+
+    document.getElementById("btn-reset-pins").onclick = () => {
+      try { localStorage.removeItem(STORAGE_KEY); } catch {}
+      window.TOUR_STATIONS.forEach((orig, i) => {
+        STATIONS[i].map = orig.map;
+        STATIONS[i].mx = orig.mx;
+        STATIONS[i].my = orig.my;
+      });
+      selectMap(STATIONS[currentIdx].map);
+    };
+
+    document.getElementById("btn-export-pins").onclick = () => {
+      const js =
+        "window.TOUR_ZONES = " + JSON.stringify(ZONES, null, 2) + ";\n\n" +
+        "window.TOUR_MAPS = " + JSON.stringify(MAPS, null, 2) + ";\n\n" +
+        "window.TOUR_STATIONS = " + JSON.stringify(STATIONS, null, 2) + ";\n";
+      const blob = new Blob([js], { type: "application/javascript;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "stations.js";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+      else document.exitFullscreen?.();
+    }
+    document.getElementById("btn-fullscreen").onclick = toggleFullscreen;
+
+    // Boot
+    buildZoneChips();
+    buildThumbStrip();
+    buildMapTabs();
+    loadStation(0);
+  </script>
+</body>
+</html>
