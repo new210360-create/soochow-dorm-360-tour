@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>東吳大學雙溪校區宿舍 — 360° 現況實景導覽</title>
   <style>
     :root {
@@ -19,13 +19,14 @@
       width: 100%; height: 100%; overflow: hidden;
       background: var(--bg); color: var(--text);
       font-family: "Microsoft JhengHei", "Noto Sans TC", system-ui, -apple-system, sans-serif;
-      user-select: none;
+      user-select: none; -webkit-user-select: none;
+      overscroll-behavior: none;
     }
 
     /* Fullscreen WebGL Canvas */
     #viewer {
       position: fixed; inset: 0; width: 100%; height: 100%;
-      cursor: grab; display: block;
+      cursor: grab; display: block; touch-action: none;
     }
     #viewer.dragging { cursor: grabbing; }
 
@@ -138,7 +139,7 @@
       position: relative; width: 100%; background: #ffffff;
       overflow: hidden; max-height: 46vh;
       display: flex; align-items: center; justify-content: center;
-      cursor: zoom-in;
+      cursor: zoom-in; touch-action: none;
     }
     .map-stage.zoomed { cursor: grab; }
     .map-stage.panning { cursor: grabbing; }
@@ -241,9 +242,93 @@
       font-family: ui-monospace, Consolas, monospace; color: #0b0f17;
     }
 
+    /* Mobile Bottom Action Bar (hidden on desktop) */
+    .mobile-bar {
+      display: none;
+    }
+    .btn-close-map {
+      display: none;
+    }
+
     @media (max-width: 820px) {
-      .brand, .divider, .station-time, .hud-readout { display: none; }
-      #map-panel { width: calc(100vw - 24px); right: 12px; bottom: 162px; }
+      .brand, .divider, .station-time, .hud-readout, .topbar-right, .nav-arrow, #btn-expand-map, .map-drag-grip {
+        display: none !important;
+      }
+      .topbar {
+        top: calc(8px + env(safe-area-inset-top, 0px));
+        left: 8px; right: 8px;
+      }
+      .topbar-left {
+        width: 100%; padding: 8px 10px; gap: 6px;
+        border-radius: 12px;
+      }
+      .station-info {
+        min-width: 0; flex: 1; gap: 6px;
+      }
+      .station-title {
+        font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .station-num { font-size: 12px; flex-shrink: 0; }
+      .zone-badge { font-size: 11px; padding: 2px 7px; }
+
+      /* Mobile CAD Map as clean overlay sheet */
+      #map-panel {
+        left: 8px !important; right: 8px !important;
+        top: calc(58px + env(safe-area-inset-top, 0px)) !important;
+        bottom: calc(68px + env(safe-area-inset-bottom, 0px)) !important;
+        width: auto !important; max-width: none;
+        border-radius: 14px;
+      }
+      #map-panel .map-stage {
+        flex: 1; max-height: none;
+      }
+      #map-panel #map-img {
+        max-height: 100%;
+      }
+      .btn-close-map { display: inline-block; }
+      .map-tab { padding: 6px 10px; font-size: 12px; }
+      .pin { width: 26px; height: 26px; font-size: 11px; }
+      .map-footer { font-size: 11px; }
+
+      /* Collapsible Bottom Dock on Mobile */
+      .bottom-dock {
+        left: 8px; right: 8px;
+        bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+        padding: 8px; border-radius: 14px;
+        gap: 6px;
+      }
+      .bottom-dock.mobile-collapsed {
+        display: none;
+      }
+      .chip { padding: 6px 11px; font-size: 12px; }
+      .thumb-card { flex: 0 0 112px; height: 66px; }
+      .thumb-overlay { font-size: 10px; padding: 10px 5px 3px; }
+
+      /* Mobile Bottom Navigation Bar */
+      .mobile-bar {
+        position: fixed;
+        left: 8px; right: 8px;
+        bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+        display: flex; align-items: center; justify-content: space-between; gap: 6px;
+        background: var(--panel); backdrop-filter: blur(14px);
+        border: 1px solid var(--border); border-radius: 14px;
+        padding: 6px 8px; z-index: 25;
+        box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+      }
+      .mobile-bar .m-btn {
+        flex: 1; height: 40px; border-radius: 10px;
+        background: rgba(30, 41, 59, 0.9); color: #f8fafc;
+        border: 1px solid var(--border);
+        font-size: 13px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center; gap: 4px;
+        cursor: pointer; white-space: nowrap; padding: 0 6px;
+      }
+      .mobile-bar .m-btn.active {
+        background: var(--accent); color: #082f49; border-color: var(--accent);
+      }
+      .mobile-bar .m-btn.nav {
+        flex: 0 0 46px; font-size: 18px;
+      }
     }
   </style>
 </head>
@@ -283,6 +368,7 @@
         <button class="btn" id="btn-reset-map-zoom" title="重設小地圖縮放 (100%)" style="display:none;">100%</button>
         <button class="btn" id="btn-edit-pins" title="點擊地圖可重新定位目前測站">編輯定位</button>
         <button class="btn" id="btn-expand-map" title="放大/縮小平面圖">放大</button>
+        <button class="btn btn-close-map" id="btn-close-map" title="關閉平面圖">✕</button>
       </div>
     </div>
     <div class="map-stage" id="map-stage">
@@ -300,12 +386,19 @@
     </div>
   </div>
 
-  <div class="bottom-dock">
+  <div class="bottom-dock" id="bottom-dock">
     <div class="dock-header">
       <div class="zone-chips" id="zone-chips"></div>
       <div class="hud-readout" id="hud-readout">視角 0° · FOV 75° · 拖曳環視 / 滾輪縮放</div>
     </div>
     <div class="thumb-strip" id="thumb-strip"></div>
+  </div>
+
+  <div class="mobile-bar" id="mobile-bar">
+    <button class="m-btn nav" id="m-prev" aria-label="上一站">‹</button>
+    <button class="m-btn" id="m-list">☰ 場景選單</button>
+    <button class="m-btn" id="m-map">🗺 CAD地圖</button>
+    <button class="m-btn nav" id="m-next" aria-label="下一站">›</button>
   </div>
 
   <script src="stations.js"></script>
@@ -472,16 +565,38 @@
     requestAnimationFrame(renderLoop);
 
     // =========================================================================
-    // 3. Pointer / Touch / Wheel / Keyboard Controls
+    // 3. Pointer / Touch (Single Drag + Two-Finger Pinch Zoom) / Wheel / Keyboard
     // =========================================================================
+    const activePointers = new Map();
+    let pinchStartDist = 0, pinchStartFov = 75;
+
     canvas.addEventListener("pointerdown", e => {
-      isDragging = true;
-      lastX = e.clientX;
-      lastY = e.clientY;
-      canvas.classList.add("dragging");
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       canvas.setPointerCapture(e.pointerId);
+      if (activePointers.size === 1) {
+        isDragging = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        canvas.classList.add("dragging");
+      } else if (activePointers.size === 2) {
+        isDragging = false;
+        const pts = Array.from(activePointers.values());
+        pinchStartDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        pinchStartFov = targetFov;
+      }
     });
     canvas.addEventListener("pointermove", e => {
+      if (!activePointers.has(e.pointerId)) return;
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (activePointers.size === 2) {
+        const pts = Array.from(activePointers.values());
+        const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        if (pinchStartDist > 10) {
+          const ratio = pinchStartDist / Math.max(10, dist);
+          targetFov = Math.max(32, Math.min(105, pinchStartFov * ratio));
+        }
+        return;
+      }
       if (!isDragging) return;
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
@@ -491,10 +606,20 @@
       targetYaw -= dx * sens;
       targetPitch = Math.max(-1.42, Math.min(1.42, targetPitch + dy * sens));
     });
-    canvas.addEventListener("pointerup", () => {
-      isDragging = false;
-      canvas.classList.remove("dragging");
-    });
+    function releaseCanvasPointer(e) {
+      activePointers.delete(e.pointerId);
+      if (activePointers.size === 1) {
+        const [pt] = Array.from(activePointers.values());
+        isDragging = true;
+        lastX = pt.x;
+        lastY = pt.y;
+      } else if (activePointers.size === 0) {
+        isDragging = false;
+        canvas.classList.remove("dragging");
+      }
+    }
+    canvas.addEventListener("pointerup", releaseCanvasPointer);
+    canvas.addEventListener("pointercancel", releaseCanvasPointer);
     canvas.addEventListener("wheel", e => {
       e.preventDefault();
       if (e.shiftKey || e.ctrlKey) {
@@ -716,6 +841,11 @@
           if (editPinMode) return;
           e.stopPropagation();
           loadStation(idx);
+          if (isMobileView()) {
+            const panel = document.getElementById("map-panel");
+            panel.classList.add("hidden");
+            syncMobileButtons();
+          }
         };
         container.appendChild(pin);
       });
@@ -841,12 +971,78 @@
     }
     document.getElementById("btn-autorotate").onclick = toggleAutoRotate;
 
+    function isMobileView() {
+      return window.innerWidth <= 820;
+    }
+
+    function syncMobileButtons() {
+      const mapOpen = !document.getElementById("map-panel").classList.contains("hidden");
+      const listOpen = !document.getElementById("bottom-dock").classList.contains("mobile-collapsed");
+      document.getElementById("btn-map").classList.toggle("active", mapOpen);
+      document.getElementById("m-map").classList.toggle("active", mapOpen);
+      document.getElementById("m-list").classList.toggle("active", listOpen);
+    }
+
     function toggleMapPanel() {
       const panel = document.getElementById("map-panel");
+      const willOpen = panel.classList.contains("hidden");
       panel.classList.toggle("hidden");
-      document.getElementById("btn-map").classList.toggle("active", !panel.classList.contains("hidden"));
+      if (isMobileView() && willOpen) {
+        document.getElementById("bottom-dock").classList.add("mobile-collapsed");
+      }
+      syncMobileButtons();
     }
     document.getElementById("btn-map").onclick = toggleMapPanel;
+    document.getElementById("btn-close-map").onclick = toggleMapPanel;
+    document.getElementById("m-map").onclick = toggleMapPanel;
+    document.getElementById("m-prev").onclick = () => goRelative(-1);
+    document.getElementById("m-next").onclick = () => goRelative(1);
+    document.getElementById("m-list").onclick = () => {
+      const dock = document.getElementById("bottom-dock");
+      const willOpen = dock.classList.contains("mobile-collapsed");
+      dock.classList.toggle("mobile-collapsed");
+      if (isMobileView() && willOpen) {
+        document.getElementById("map-panel").classList.add("hidden");
+      }
+      syncMobileButtons();
+    };
+
+    // Two-finger pinch-to-zoom on CAD minimap for mobile touchscreens
+    const mapTouchPtrs = new Map();
+    let mapPinchDist = 0, mapPinchScale = 1, mapPinchMidX = 0, mapPinchMidY = 0;
+    mapStageEl.addEventListener("pointerdown", e => {
+      if (e.pointerType !== "touch") return;
+      mapTouchPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (mapTouchPtrs.size === 2) {
+        mapPanning = false;
+        const pts = Array.from(mapTouchPtrs.values());
+        mapPinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        mapPinchScale = mapScale;
+        mapPinchMidX = (pts[0].x + pts[1].x) / 2;
+        mapPinchMidY = (pts[0].y + pts[1].y) / 2;
+      }
+    });
+    window.addEventListener("pointermove", e => {
+      if (!mapTouchPtrs.has(e.pointerId)) return;
+      mapTouchPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (mapTouchPtrs.size === 2 && mapPinchDist > 10) {
+        const pts = Array.from(mapTouchPtrs.values());
+        const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        const newScale = Math.max(1, Math.min(6, mapPinchScale * (dist / mapPinchDist)));
+        if (Math.abs(newScale - mapScale) > 0.01) {
+          const wrapRect = mapWrapEl.getBoundingClientRect();
+          const cx = (mapPinchMidX - wrapRect.left) / mapScale;
+          const cy = (mapPinchMidY - wrapRect.top) / mapScale;
+          mapTx -= cx * (newScale - mapScale);
+          mapTy -= cy * (newScale - mapScale);
+          mapScale = newScale;
+          applyMapTransform();
+        }
+      }
+    });
+    function releaseMapTouch(e) { mapTouchPtrs.delete(e.pointerId); }
+    window.addEventListener("pointerup", releaseMapTouch);
+    window.addEventListener("pointercancel", releaseMapTouch);
 
     document.getElementById("btn-expand-map").onclick = () => {
       const panel = document.getElementById("map-panel");
@@ -951,6 +1147,11 @@
     document.getElementById("btn-fullscreen").onclick = toggleFullscreen;
 
     // Boot (default landing station: #006 35-38 西側階梯入口遠景)
+    if (isMobileView()) {
+      document.getElementById("map-panel").classList.add("hidden");
+      document.getElementById("bottom-dock").classList.add("mobile-collapsed");
+    }
+    syncMobileButtons();
     buildZoneChips();
     buildThumbStrip();
     buildMapTabs();
