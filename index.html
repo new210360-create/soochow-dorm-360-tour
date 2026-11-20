@@ -604,7 +604,7 @@
       lastY = e.clientY;
       const sens = (fov / 75) * 0.0038;
       targetYaw -= dx * sens;
-      targetPitch = Math.max(-1.42, Math.min(1.42, targetPitch + dy * sens));
+      targetPitch = Math.max(-1.42, Math.min(1.42, targetPitch - dy * sens));
     });
     function releaseCanvasPointer(e) {
       activePointers.delete(e.pointerId);
