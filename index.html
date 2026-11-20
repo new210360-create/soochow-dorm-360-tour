@@ -950,11 +950,12 @@
     }
     document.getElementById("btn-fullscreen").onclick = toggleFullscreen;
 
-    // Boot
+    // Boot (default landing station: #006 35-38 西側階梯入口遠景)
     buildZoneChips();
     buildThumbStrip();
     buildMapTabs();
-    loadStation(0);
+    const defaultIdx = STATIONS.findIndex(s => s.id === 6);
+    loadStation(defaultIdx >= 0 ? defaultIdx : 0);
   </script>
 </body>
 </html>
